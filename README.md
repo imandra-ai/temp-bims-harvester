@@ -14,22 +14,25 @@ clicks, types, submits, or mutates anything.**
 > Produces a JSON snapshot you send back; nothing is transmitted from this
 > tool itself.
 
+**Zero dependencies — no `npm install`.** It talks to Chrome's DevTools
+Protocol using only Node.js built-ins, so it runs on a network-restricted
+box where the npm registry is blocked.
+
 ## Prerequisites
 
-- **Node.js 18+** (22 LTS recommended) — includes npm.
+- **Node.js 22+** (needed for the built-in `WebSocket`). Check: `node --version`.
 - **Google Chrome** (or Microsoft Edge) — already present on the Workspace.
 
-## One-time setup
+## Setup
 
 ```
-git clone <this-repo-url>
-cd bims-locator-harvester
-npm install
+git clone https://github.com/imandra-ai/temp-bims-harvester.git
+cd temp-bims-harvester
 ```
 
-`npm install` pulls the Playwright npm package (needs access to the npm
-registry or an internal mirror). It does **not** download browser binaries
-— we attach to your existing Chrome.
+That's it — there's nothing to install. If even `git clone` is blocked,
+just copy the single file `harvest_locators.mjs` onto the Workspace (e.g.
+download it from the repo's web UI, or paste it into a new file).
 
 ## Each harvest run
 
