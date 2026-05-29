@@ -1,0 +1,7 @@
+# Node
+node_modules/
+npm-debug.log*
+
+# Captured DOM snapshots — these come off a live trading platform, so keep
+# them OUT of version control.  Send them back through the agreed channel.
+*.dom.json

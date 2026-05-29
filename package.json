@@ -1,0 +1,16 @@
+{
+  "name": "bims-locator-harvester",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Read-only tool to harvest live BIMS NextGen DOM locators for the Imandra ATDL test generator. Runs on the AWS Workspace; attaches to an already-logged-in Chrome.",
+  "scripts": {
+    "harvest": "node harvest_locators.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "playwright": "^1.48.0"
+  }
+}
