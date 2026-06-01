@@ -73,6 +73,37 @@ download it from the repo's web UI, or paste it into a new file).
 | `--cdp <URL>` | `http://localhost:9222` | Chrome DevTools endpoint |
 | `--url-contains <S>` | `broadridge` | If several tabs are open, pick the one whose URL contains this |
 
+## Auto-harvest every strategy (`meta_harvest.mjs`)
+
+Instead of harvesting one strategy at a time, this walks the **whole Strategy
+picker** in one unattended pass: for each strategy it selects it, expands the
+Controls/Advanced panels, and writes `<strategy>.dom.json`.
+
+It interacts with exactly three things — the Strategy combobox, a strategy
+option, and the panel toggle buttons. **It never clicks Save / Send / Submit;
+no order is ever placed.**
+
+```
+# 1-3. Same Chrome-with-debug-port + login as above, then:
+#      open New Order, pick a BofA-routable security, route to the BofA
+#      broker so the Strategy dropdown is populated.  Leave it on that screen.
+
+node meta_harvest.mjs --only AMRS --out-dir harvest
+```
+
+| Flag | Default | Meaning |
+|------|---------|---------|
+| `--only <substr>` | (all) | only strategies whose picker name contains this (case-insensitive) |
+| `--panels "A,B"` | `Controls,Advanced` | panel toggle labels to expand |
+| `--out-dir <dir>` | `.` | where to write `<strategy>.dom.json` |
+| `--cdp <url>` | `http://localhost:9222` | Chrome DevTools endpoint |
+| `--url-contains <s>` | `broadridge` | which tab to drive |
+| `--settle <ms>` | `800` | wait after each select/expand (raise if the UI is slow) |
+
+Send back the whole `harvest/` folder (the `*.dom.json` files +
+`meta-harvest-summary.json`).  It prints per-strategy control/testid counts as
+it goes, and the summary lists anything it had to skip.
+
 ## What the JSON contains
 
 Per control: `data-testid`, `id`, `name`, `aria-label`, `role`, associated
