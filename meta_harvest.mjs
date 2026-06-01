@@ -73,7 +73,7 @@ function listStrategiesInPage(stratXpath) {
   })();
 }
 
-function selectAndExpandInPage(stratXpath, name, panels, settle) {
+function selectStrategyInPage(stratXpath, name, settle) {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const xp = (x) => document.evaluate(x, document, null,
     XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
@@ -89,16 +89,7 @@ function selectAndExpandInPage(stratXpath, name, panels, settle) {
     if (!opt) { document.body.click(); return { error: "option not found: " + name }; }
     opt.click();
     await sleep(settle);
-    // Expand named panels if collapsed.  Never touch anything else.
-    const clicked = [];
-    for (const lbl of panels) {
-      const pb = xp(`//button[normalize-space(text())='${lbl}']`);
-      if (pb) {
-        const exp = pb.getAttribute("aria-expanded");
-        if (exp === "false" || exp === null) { pb.click(); clicked.push(lbl); await sleep(settle / 2); }
-      }
-    }
-    return { ok: true, panelsClicked: clicked };
+    return { ok: true };
   })();
 }
 
@@ -217,7 +208,7 @@ function makeEval(wsUrl) {
     const id = nextId++;
     return new Promise((resolve, reject) => {
       pending.set(id, { resolve, reject });
-      const t = setTimeout(() => { pending.delete(id); reject(new Error("CDP timeout (45s)")); }, 45000);
+      const t = setTimeout(() => { pending.delete(id); reject(new Error("CDP timeout (120s)")); }, 120000);
       const wrap = (v) => { clearTimeout(t); resolve(v); };
       pending.set(id, { resolve: wrap, reject });
       ws.send(JSON.stringify({ id, method: "Runtime.evaluate",
@@ -228,6 +219,55 @@ function makeEval(wsUrl) {
 }
 
 const call = (fn, ...args) => `(${fn.toString()})(${args.map((a) => JSON.stringify(a)).join(",")})`;
+
+// Build the in-page "capture everything" expression for the currently-selected
+// strategy.  It (1) clicks named panel toggles, (2) recursively expands every
+// collapsible section (aria-expanded=false) except the Strategy combobox, then
+// (3) toggles each algo gate checkbox (data-testid$=_checkbox) to reveal the
+// fields it gates — snapshotting in each state and MERGING by testid — and
+// restores each checkbox afterwards so the next strategy starts clean.  This
+// is what makes the capture complete: gated clocks/fields no longer hide.
+function captureExpr(stratXpath, panels, settle) {
+  return `(async () => {
+    ${collectInPage.toString()}
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const xp = (x) => document.evaluate(x, document, null, 9, null).singleNodeValue;
+    const stratBtn = xp(${JSON.stringify(stratXpath)});
+    const panels = ${JSON.stringify(panels)};
+    // (1) named panel toggles, if collapsed
+    for (const lbl of panels) {
+      const pb = xp("//button[normalize-space(text())='" + lbl + "']");
+      if (pb && pb.getAttribute("aria-expanded") !== "true") { try { pb.click(); } catch (e) {} await sleep(${settle} / 2); }
+    }
+    // (2) recursively expand all collapsed accordions (not the strategy picker)
+    const expandPass = () => {
+      const t = [...document.querySelectorAll('[aria-expanded="false"]')].filter((e) => e !== stratBtn);
+      t.forEach((e) => { try { e.click(); } catch (x) {} });
+      return t.length;
+    };
+    for (let i = 0; i < 12; i++) { if (expandPass() === 0) break; await sleep(${settle} / 2); }
+    // (3) capture + merge across gate-checkbox states
+    const byKey = new Map();
+    const absorb = () => { const r = collectInPage(); for (const c of r.controls) {
+      const k = c.dataTestid || c.cssSuggest || c.xpathSuggest || (c.tag + "|" + c.label);
+      if (!byKey.has(k)) byKey.set(k, c); } };
+    absorb();
+    const boxes = [...document.querySelectorAll('[data-testid$="_checkbox"]')].slice(0, 16);
+    let toggled = 0;
+    for (const b of boxes) {
+      try { b.click(); } catch (e) { continue; }
+      toggled++; await sleep(${settle} / 2);
+      for (let i = 0; i < 6; i++) { if (expandPass() === 0) break; await sleep(${settle} / 3); }
+      absorb();
+      try { b.click(); } catch (e) {}     // restore prior state
+      await sleep(${settle} / 3);
+    }
+    const controls = [...byKey.values()];
+    return { pageUrl: location.href, pageTitle: document.title,
+      controlCount: controls.length, withTestid: controls.filter((c) => c.dataTestid).length,
+      gateCheckboxesToggled: toggled, controls };
+  })()`;
+}
 
 async function main() {
   if (typeof WebSocket === "undefined") {
@@ -259,24 +299,25 @@ async function main() {
     (ONLY ? ` (${names.length} match "--only ${ONLY}")` : "") + ":");
   console.log("  " + names.join(", ") + "\n");
 
-  // 2. Walk each: select -> expand panels -> snapshot.
+  // 2. Walk each: select -> fully expand (incl. gate-checkbox states) -> snapshot.
   const summary = [];
   for (const name of names) {
     process.stdout.write(`  • ${name} … `);
     let nav, dom = null, err = null;
     try {
-      nav = await evalExpr(call(selectAndExpandInPage, STRAT_XPATH, name, PANELS, SETTLE));
+      nav = await evalExpr(call(selectStrategyInPage, STRAT_XPATH, name, SETTLE));
       if (nav && nav.error) throw new Error(nav.error);
-      dom = await evalExpr(call(collectInPage));
+      dom = await evalExpr(captureExpr(STRAT_XPATH, PANELS, SETTLE));
     } catch (e) { err = e.message; }
     if (dom) {
       const file = join(OUT_DIR, name.replace(/[^A-Za-z0-9_]+/g, "_").toLowerCase() + ".dom.json");
       writeFileSync(file, JSON.stringify({
         strategy: name, capturedFromUrl: dom.pageUrl, pageTitle: dom.pageTitle,
         controlCount: dom.controlCount, controlsWithTestid: dom.withTestid,
-        panelsExpanded: (nav && nav.panelsClicked) || [], controls: dom.controls,
+        gateCheckboxesToggled: dom.gateCheckboxesToggled, controls: dom.controls,
       }, null, 2));
-      console.log(`${dom.controlCount} controls, ${dom.withTestid} testids -> ${file}`);
+      console.log(`${dom.controlCount} controls, ${dom.withTestid} testids ` +
+        `(${dom.gateCheckboxesToggled} gate-toggles) -> ${file}`);
       summary.push({ strategy: name, file, controls: dom.controlCount, testids: dom.withTestid });
     } else {
       console.log(`SKIPPED (${err})`);
